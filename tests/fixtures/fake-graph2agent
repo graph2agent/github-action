@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${FAKE_GRAPH2AGENT_LOG:?FAKE_GRAPH2AGENT_LOG is required}"
+printf '%s\0' "$@" >"$FAKE_GRAPH2AGENT_LOG"
+exit "${FAKE_GRAPH2AGENT_EXIT:-0}"

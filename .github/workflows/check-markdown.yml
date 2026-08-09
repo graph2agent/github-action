@@ -1,0 +1,148 @@
+name: Check graph2agent Markdown
+
+on:
+  workflow_call:
+    inputs:
+      path:
+        description: Existing Markdown file or directory in the caller repository.
+        required: false
+        type: string
+        default: .
+      profile:
+        description: Deterministic graph2agent narrative profile.
+        required: false
+        type: string
+        default: interpreted-v3
+      graph2agent-version:
+        description: Exact private graph2agent core SemVer tag.
+        required: false
+        type: string
+        default: v0.1.0
+      ref:
+        description: Caller repository branch, tag, or SHA; empty selects the triggering revision.
+        required: false
+        type: string
+        default: ''
+    secrets:
+      GRAPH2AGENT_READ_TOKEN:
+        description: Read-only token for the private graph2agent core repository.
+        required: true
+    outputs:
+      checked:
+        description: true when every selected annotation is current.
+        value: ${{ jobs.check.outputs.checked }}
+      graph2agent-version:
+        description: Exact graph2agent core tag used for the check.
+        value: ${{ jobs.check.outputs.version }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: graph2agent-check-${{ github.repository }}-${{ inputs.ref || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      checked: ${{ steps.result.outputs.checked }}
+      version: ${{ steps.result.outputs.version }}
+    steps:
+      - name: Validate ref
+        shell: bash
+        env:
+          REQUESTED_REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_REF" != *$'\n'* && "$REQUESTED_REF" != *$'\r'* ]] || {
+            printf 'ref contains a line break\n' >&2
+            exit 2
+          }
+          [[ "$REQUESTED_REF" != -* && "$REQUESTED_REF" != *'@{'* && "$REQUESTED_REF" != *..* ]] || {
+            printf 'ref is not safe\n' >&2
+            exit 2
+          }
+
+      - name: Check out caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.25.x
+          cache: false
+
+      - name: Install exact private core tag and verify annotations
+        shell: bash
+        env:
+          GRAPH2AGENT_READ_TOKEN: ${{ secrets.GRAPH2AGENT_READ_TOKEN }}
+          GRAPH2AGENT_VERSION: ${{ inputs.graph2agent-version }}
+          GRAPH2AGENT_PATH: ${{ inputs.path }}
+          GRAPH2AGENT_PROFILE: ${{ inputs.profile }}
+        run: |
+          set -euo pipefail
+          fail() { printf 'graph2agent check: %s\n' "$1" >&2; exit 2; }
+
+          version=$GRAPH2AGENT_VERSION
+          target_path=$GRAPH2AGENT_PATH
+          profile=$GRAPH2AGENT_PROFILE
+          token=$GRAPH2AGENT_READ_TOKEN
+          unset GRAPH2AGENT_READ_TOKEN
+
+          [[ -n "$token" && "$token" != *$'\n'* && "$token" != *$'\r'* ]] || fail "invalid read token"
+          semver_pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          [[ "$version" =~ $semver_pattern ]] ||
+            fail "version must be an exact SemVer tag"
+          case "$profile" in
+            compact | standard | exhaustive | readable-v1 | interpreted-v1 | interpreted-v2 | interpreted-v3) ;;
+            *) fail "unsupported profile" ;;
+          esac
+          [[ -n "$target_path" && "$target_path" != -* ]] || fail "invalid path"
+          [[ "$target_path" != *$'\n'* && "$target_path" != *$'\r'* ]] || fail "invalid path"
+          case "$target_path" in
+            /* | ~* | *\\* | ../* | */../* | */..) fail "path must stay within GITHUB_WORKSPACE" ;;
+          esac
+          [[ -e "$target_path" ]] || fail "path does not exist"
+          [[ ! -L "$target_path" ]] || fail "path must not be a symbolic link"
+
+          workspace=$(cd "${GITHUB_WORKSPACE:-$PWD}" && pwd -P)
+          if [[ -d "$target_path" ]]; then
+            resolved=$(cd "$target_path" && pwd -P)
+          else
+            target_parent=$(cd "$(dirname "$target_path")" && pwd -P)
+            resolved=${target_parent}/$(basename "$target_path")
+          fi
+          case "$resolved" in
+            "$workspace" | "$workspace"/*) ;;
+            *) fail "path resolves outside GITHUB_WORKSPACE" ;;
+          esac
+
+          install_root=$(mktemp -d "${RUNNER_TEMP%/}/graph2agent-check.XXXXXX")
+          basic_auth=$(printf 'x-access-token:%s' "$token" | base64 | tr -d '\r\n')
+          unset token
+          GOBIN="$install_root" \
+          GOTOOLCHAIN=local \
+          GOPRIVATE='github.com/graph2agent/*' \
+          GONOPROXY='github.com/graph2agent/*' \
+          GONOSUMDB='github.com/graph2agent/*' \
+          GIT_TERMINAL_PROMPT=0 \
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0='http.https://github.com/.extraheader' \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${basic_auth}" \
+          go install "github.com/graph2agent/graph2agent/cmd/graph2agent@${version}"
+          unset basic_auth
+          "$install_root/graph2agent" check --profile "$profile" "$target_path"
+
+      - name: Record successful check
+        id: result
+        shell: bash
+        env:
+          GRAPH2AGENT_VERSION: ${{ inputs.graph2agent-version }}
+        run: |
+          printf 'checked=true\n' >>"$GITHUB_OUTPUT"
+          printf 'version=%s\n' "$GRAPH2AGENT_VERSION" >>"$GITHUB_OUTPUT"

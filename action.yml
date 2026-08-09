@@ -1,0 +1,70 @@
+name: graph2agent Markdown
+description: Install an exact private graph2agent release and update or check Mermaid annotations.
+author: graph2agent
+
+inputs:
+  token:
+    description: Read-only token with contents access to the private graph2agent core repository.
+    required: true
+  version:
+    description: Exact graph2agent core SemVer tag to install.
+    required: false
+    default: v0.1.0
+  operation:
+    description: Operation to run; update writes annotations and check verifies them.
+    required: false
+    default: check
+  path:
+    description: Existing Markdown file or repository-relative directory to process.
+    required: false
+    default: .
+  profile:
+    description: Deterministic graph2agent narrative profile.
+    required: false
+    default: interpreted-v3
+  go-version:
+    description: Go toolchain used only to install the pinned graph2agent release.
+    required: false
+    default: 1.25.x
+
+outputs:
+  binary:
+    description: Ephemeral absolute path of the installed graph2agent binary.
+    value: ${{ steps.install.outputs.binary }}
+  version:
+    description: Exact installed graph2agent core tag.
+    value: ${{ steps.install.outputs.version }}
+  operation:
+    description: Validated operation that ran.
+    value: ${{ steps.run.outputs.operation }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache: false
+
+    - name: Install pinned private graph2agent release
+      id: install
+      shell: bash
+      env:
+        GRAPH2AGENT_READ_TOKEN: ${{ inputs.token }}
+        GRAPH2AGENT_VERSION: ${{ inputs.version }}
+      run: '"$GITHUB_ACTION_PATH/scripts/install.sh"'
+
+    - name: Run graph2agent
+      id: run
+      shell: bash
+      env:
+        GRAPH2AGENT_BINARY: ${{ steps.install.outputs.binary }}
+        GRAPH2AGENT_OPERATION: ${{ inputs.operation }}
+        GRAPH2AGENT_PATH: ${{ inputs.path }}
+        GRAPH2AGENT_PROFILE: ${{ inputs.profile }}
+      run: '"$GITHUB_ACTION_PATH/scripts/run.sh"'
+
+branding:
+  icon: share-2
+  color: purple

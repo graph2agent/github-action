@@ -1,0 +1,25 @@
+name: Check graph2agent annotations
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Replace the placeholder with an audited 40-character commit SHA.
+      - uses: graph2agent/github-action@0000000000000000000000000000000000000000
+        with:
+          token: ${{ secrets.GRAPH2AGENT_READ_TOKEN }}
+          version: v0.1.0
+          operation: check
+          path: .
+          profile: interpreted-v3

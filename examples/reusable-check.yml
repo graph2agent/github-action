@@ -1,0 +1,20 @@
+name: Reusable graph2agent check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  graph2agent:
+    # Replace the placeholder with an audited 40-character commit SHA.
+    uses: graph2agent/github-action/.github/workflows/check-markdown.yml@0000000000000000000000000000000000000000
+    with:
+      path: .
+      profile: interpreted-v3
+      graph2agent-version: v0.1.0
+    secrets:
+      GRAPH2AGENT_READ_TOKEN: ${{ secrets.GRAPH2AGENT_READ_TOKEN }}
