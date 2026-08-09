@@ -7,7 +7,14 @@ ruby --disable-gems - "$repo_root/action.yml" <<'RUBY'
 require "yaml"
 
 path = ARGV.fetch(0)
-document = YAML.safe_load(File.read(path), [], [], false)
+source = File.read(path)
+document = begin
+  YAML.safe_load(source, permitted_classes: [], permitted_symbols: [], aliases: false)
+rescue ArgumentError
+  # Psych 3 (still shipped by some macOS Ruby installations) exposes these
+  # controls as positional arguments; Psych 4+ uses keywords.
+  YAML.safe_load(source, [], [], false)
+end
 abort "action.yml must be a mapping" unless document.is_a?(Hash)
 abort "composite action missing runs.using" unless document.dig("runs", "using") == "composite"
 %w[token version operation path profile go-version].each do |name|
