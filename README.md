@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/graph2agent/graph2agent/main/.github/assets/favicon.svg" alt="graph2agent logo" width="96" height="96">
+</p>
+
 # Never merge stale graph context. Let a bot keep it fresh.
 
 graph2agent's GitHub automation makes generated Mermaid context enforceable in
@@ -97,7 +101,7 @@ no Git publication step.
 
 | Input | Default | Contract |
 | --- | --- | --- |
-| `token` | empty | Optional read-only access during the private preview; public releases need none. |
+| `token` | empty | Optional read-only GitHub access for private-fork compatibility; public releases need none. |
 | `version` | `v0.2.0` | Exact SemVer tag; branches, ranges, and `latest` are rejected. |
 | `operation` | `check` | Exactly `check` or `update`. |
 | `path` | `.` | One repository-relative file or directory; traversal, symlink targets, leading hyphens, and line breaks are rejected. |
@@ -229,3 +233,7 @@ arguments, rejects unsafe input, checks that credentials are environment-only,
 tests the reusable update workflow's request/diff/commit/push boundaries, and
 confirms that captured output contains no test token. CI pins external Actions
 by full SHA and installs an exact actionlint release.
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).
