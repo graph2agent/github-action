@@ -15,6 +15,4 @@ jobs:
     with:
       path: .
       profile: interpreted-v3
-      graph2agent-version: v0.1.0
-    secrets:
-      GRAPH2AGENT_READ_TOKEN: ${{ secrets.GRAPH2AGENT_READ_TOKEN }}
+      graph2agent-version: v0.2.0

@@ -7,7 +7,8 @@ ruby --disable-gems - \
   "$repo_root/action.yml" \
   "$repo_root/.github/workflows/update-markdown.yml" \
   "$repo_root/prepare/action.yml" \
-  "$repo_root/publish/action.yml" <<'RUBY'
+  "$repo_root/publish/action.yml" \
+  "$repo_root/.github/workflows/maintain-markdown.yml" <<'RUBY'
 require "yaml"
 
 def load_yaml(path)
@@ -29,9 +30,10 @@ abort "composite action missing runs.using" unless document.dig("runs", "using")
 end
 abort "unsafe default operation" unless document.dig("inputs", "operation", "default") == "check"
 abort "wrong default profile" unless document.dig("inputs", "profile", "default") == "interpreted-v3"
-abort "wrong default core tag" unless document.dig("inputs", "version", "default") == "v0.1.0"
+abort "wrong default core tag" unless document.dig("inputs", "version", "default") == "v0.2.0"
 abort "wrong default Go toolchain" unless document.dig("inputs", "go-version", "default") == "1.25.x"
-abort "token must be required" unless document.dig("inputs", "token", "required") == true
+abort "token must be optional" unless document.dig("inputs", "token", "required") == false
+abort "optional token must default empty" unless document.dig("inputs", "token", "default") == ""
 
 prepare_action = load_yaml(ARGV.fetch(2))
 publish_action = load_yaml(ARGV.fetch(3))
@@ -110,6 +112,39 @@ abort "publisher job may contain only pinned actions" unless publish_steps.all? 
 publish_source = YAML.dump(publish)
 abort "publisher received the core deploy key" if publish_source.include?("GRAPH2AGENT_DEPLOY_KEY")
 abort "publisher received or ran graph2agent core" if publish_source.include?("graph2agent-version") || publish_source.include?("/core")
+
+maintain = load_yaml(ARGV.fetch(4))
+abort "maintain workflow must be a mapping" unless maintain.is_a?(Hash)
+maintain_trigger = maintain["on"] || maintain[true]
+maintain_call = maintain_trigger.fetch("workflow_call", {})
+maintain_inputs = maintain_call.fetch("inputs", {})
+%w[path profile graph2agent-version base-branch commit-message pull-request-title].each do |name|
+  abort "missing maintain workflow input #{name}" unless maintain_inputs.key?(name)
+end
+abort "wrong maintain core tag" unless maintain_inputs.dig("graph2agent-version", "default") == "v0.2.0"
+abort "wrong maintain profile" unless maintain_inputs.dig("profile", "default") == "interpreted-v3"
+abort "maintain read token must be optional" unless maintain_call.dig("secrets", "GRAPH2AGENT_READ_TOKEN", "required") == false
+abort "maintain must accept exactly one optional secret" unless maintain_call.fetch("secrets", {}).keys == ["GRAPH2AGENT_READ_TOKEN"]
+abort "maintain top-level permissions must be empty" unless maintain["permissions"] == {}
+abort "concurrent maintenance runs must not be cancelled" unless maintain.dig("concurrency", "cancel-in-progress") == false
+maintain_jobs = maintain.fetch("jobs", {})
+abort "maintain workflow must have only prepare and publish jobs" unless maintain_jobs.keys == %w[prepare publish]
+maintain_prepare = maintain_jobs.fetch("prepare")
+maintain_publish = maintain_jobs.fetch("publish")
+abort "maintain prepare must have only contents read" unless maintain_prepare["permissions"] == {"contents" => "read"}
+abort "maintain publisher permissions are wrong" unless maintain_publish["permissions"] == {"contents" => "write", "pull-requests" => "write"}
+abort "maintain publisher must depend on prepare" unless maintain_publish["needs"] == "prepare"
+abort "maintain publisher must run only for a prepared update" unless maintain_publish["if"] == "needs.prepare.outputs.updated == 'true'"
+maintain_prepare_source = YAML.dump(maintain_prepare)
+maintain_publish_source = YAML.dump(maintain_publish)
+abort "maintain prepare received write authority" if maintain_prepare_source.include?("contents: write") || maintain_prepare_source.include?("pull-requests: write")
+abort "maintain publisher received the core read token" if maintain_publish_source.include?("GRAPH2AGENT_READ_TOKEN")
+abort "maintain publisher ran graph2agent core" if maintain_publish_source.include?("go install")
+abort "maintain publisher must use the audited patch publisher" unless maintain_publish_source.include?("graph2agent/github-action/publish@f39b93a81f885026b39945e8413992690826b9c0")
+abort "maintain prepare must use the audited patch preparer" unless maintain_prepare_source.include?("graph2agent/github-action/prepare@f39b93a81f885026b39945e8413992690826b9c0")
+abort "maintain workflow must open the pull request through the GitHub API" unless maintain_publish_source.include?("gh api --method POST")
+abort "maintain workflow must reuse one open bot pull request" unless maintain_publish_source.include?("starts_with") || maintain_publish_source.include?("startswith")
+abort "maintain workflow may not force-push" if maintain_publish_source.match?(/--force(?:\s|$)|--force-with-lease/)
 RUBY
 
 while IFS= read -r use; do
@@ -151,6 +186,23 @@ grep -F "printf '::add-mask::%s\\n' \"\$basic_auth\"" "$repo_root/publish/run.sh
 if grep -En -- '--force([^A-Za-z]|$)|--force-with-lease|pull-requests:[[:space:]]*write|gh[[:space:]]+pr|secrets\.[A-Za-z0-9_]*WRITE' \
   "$update_workflow" "$repo_root/publish/run.sh"; then
   printf 'update workflow contains a prohibited publication mechanism\n' >&2
+  exit 1
+fi
+
+maintain_workflow="$repo_root/.github/workflows/maintain-markdown.yml"
+[[ $(grep -Ec '^[[:space:]]+contents:[[:space:]]+write$' "$maintain_workflow") -eq 1 ]] || {
+  printf 'maintain workflow must contain exactly one contents-write grant\n' >&2
+  exit 1
+}
+[[ $(grep -Ec '^[[:space:]]+pull-requests:[[:space:]]+write$' "$maintain_workflow") -eq 1 ]] || {
+  printf 'maintain workflow must contain exactly one pull-requests-write grant\n' >&2
+  exit 1
+}
+grep -F 'permissions: {}' "$maintain_workflow" >/dev/null
+grep -F 'if: needs.prepare.outputs.updated == '\''true'\''' "$maintain_workflow" >/dev/null
+grep -F 'token: ${{ github.token }}' "$maintain_workflow" >/dev/null
+if grep -En -- '--force([^A-Za-z]|$)|--force-with-lease' "$maintain_workflow"; then
+  printf 'maintain workflow contains a prohibited push mode\n' >&2
   exit 1
 fi
 

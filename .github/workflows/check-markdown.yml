@@ -14,10 +14,10 @@ on:
         type: string
         default: interpreted-v3
       graph2agent-version:
-        description: Exact private graph2agent core SemVer tag.
+        description: Exact graph2agent core SemVer tag.
         required: false
         type: string
-        default: v0.1.0
+        default: v0.2.0
       ref:
         description: Caller repository branch, tag, or SHA; empty selects the triggering revision.
         required: false
@@ -25,8 +25,8 @@ on:
         default: ''
     secrets:
       GRAPH2AGENT_READ_TOKEN:
-        description: Read-only token for the private graph2agent core repository.
-        required: true
+        description: Optional read-only token for a private-preview core repository.
+        required: false
     outputs:
       checked:
         description: true when every selected annotation is current.
@@ -77,7 +77,7 @@ jobs:
           go-version: 1.25.x
           cache: false
 
-      - name: Install exact private core tag and verify annotations
+      - name: Install exact core tag and verify annotations
         shell: bash
         env:
           GRAPH2AGENT_READ_TOKEN: ${{ secrets.GRAPH2AGENT_READ_TOKEN }}
@@ -94,7 +94,7 @@ jobs:
           token=$GRAPH2AGENT_READ_TOKEN
           unset GRAPH2AGENT_READ_TOKEN
 
-          [[ -n "$token" && "$token" != *$'\n'* && "$token" != *$'\r'* ]] || fail "invalid read token"
+          [[ "$token" != *$'\n'* && "$token" != *$'\r'* ]] || fail "invalid read token"
           semver_pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
           [[ "$version" =~ $semver_pattern ]] ||
             fail "version must be an exact SemVer tag"
@@ -123,19 +123,27 @@ jobs:
           esac
 
           install_root=$(mktemp -d "${RUNNER_TEMP%/}/graph2agent-check.XXXXXX")
-          basic_auth=$(printf 'x-access-token:%s' "$token" | base64 | tr -d '\r\n')
-          unset token
-          GOBIN="$install_root" \
-          GOTOOLCHAIN=local \
-          GOPRIVATE='github.com/graph2agent/*' \
-          GONOPROXY='github.com/graph2agent/*' \
-          GONOSUMDB='github.com/graph2agent/*' \
-          GIT_TERMINAL_PROMPT=0 \
-          GIT_CONFIG_COUNT=1 \
-          GIT_CONFIG_KEY_0='http.https://github.com/.extraheader' \
-          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${basic_auth}" \
-          go install "github.com/graph2agent/graph2agent/cmd/graph2agent@${version}"
-          unset basic_auth
+          if [[ -n "$token" ]]; then
+            basic_auth=$(printf 'x-access-token:%s' "$token" | base64 | tr -d '\r\n')
+            unset token
+            GOBIN="$install_root" \
+            GOTOOLCHAIN=local \
+            GOPRIVATE='github.com/graph2agent/*' \
+            GONOPROXY='github.com/graph2agent/*' \
+            GONOSUMDB='github.com/graph2agent/*' \
+            GIT_TERMINAL_PROMPT=0 \
+            GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0='http.https://github.com/.extraheader' \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${basic_auth}" \
+              go install "github.com/graph2agent/graph2agent/cmd/graph2agent@${version}"
+            unset basic_auth
+          else
+            unset token
+            GOBIN="$install_root" \
+            GOTOOLCHAIN=local \
+            GIT_TERMINAL_PROMPT=0 \
+              go install "github.com/graph2agent/graph2agent/cmd/graph2agent@${version}"
+          fi
           "$install_root/graph2agent" check --profile "$profile" "$target_path"
 
       - name: Record successful check

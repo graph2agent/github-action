@@ -3,29 +3,41 @@ set -euo pipefail
 
 : "${FAKE_GO_LOG:?FAKE_GO_LOG is required}"
 : "${FAKE_GRAPH2AGENT_FIXTURE:?FAKE_GRAPH2AGENT_FIXTURE is required}"
-: "${EXPECTED_TEST_TOKEN:?EXPECTED_TEST_TOKEN is required}"
+: "${EXPECT_PRIVATE_AUTH:?EXPECT_PRIVATE_AUTH is required}"
 
 [[ $# -eq 2 && $1 == install ]] || exit 20
 [[ $2 == github.com/graph2agent/graph2agent/cmd/graph2agent@* ]] || exit 21
-[[ ${GIT_CONFIG_COUNT:-} == 1 ]] || exit 22
-[[ ${GIT_CONFIG_KEY_0:-} == http.https://github.com/.extraheader ]] || exit 23
-[[ ${GIT_CONFIG_VALUE_0:-} == 'AUTHORIZATION: basic '* ]] || exit 24
-[[ ${GIT_CONFIG_VALUE_0:-} != *"$EXPECTED_TEST_TOKEN"* ]] || exit 25
-[[ ${GOPRIVATE:-} == 'github.com/graph2agent/*' ]] || exit 26
-[[ ${GONOPROXY:-} == 'github.com/graph2agent/*' ]] || exit 27
-[[ ${GONOSUMDB:-} == 'github.com/graph2agent/*' ]] || exit 28
 [[ ${GIT_TERMINAL_PROMPT:-} == 0 ]] || exit 29
 [[ ${GOTOOLCHAIN:-} == local ]] || exit 30
 [[ -z ${GRAPH2AGENT_READ_TOKEN+x} ]] || exit 31
 
-encoded=${GIT_CONFIG_VALUE_0#AUTHORIZATION: basic }
-if decoded=$(printf '%s' "$encoded" | base64 --decode 2>/dev/null); then
-  :
-else
-  decoded=$(printf '%s' "$encoded" | base64 -D)
-fi
-[[ $decoded == "x-access-token:${EXPECTED_TEST_TOKEN}" ]] || exit 32
-unset decoded encoded
+case "$EXPECT_PRIVATE_AUTH" in
+  true)
+    : "${EXPECTED_TEST_TOKEN:?EXPECTED_TEST_TOKEN is required for private auth}"
+    [[ ${GIT_CONFIG_COUNT:-} == 1 ]] || exit 22
+    [[ ${GIT_CONFIG_KEY_0:-} == http.https://github.com/.extraheader ]] || exit 23
+    [[ ${GIT_CONFIG_VALUE_0:-} == 'AUTHORIZATION: basic '* ]] || exit 24
+    [[ ${GIT_CONFIG_VALUE_0:-} != *"$EXPECTED_TEST_TOKEN"* ]] || exit 25
+    [[ ${GOPRIVATE:-} == 'github.com/graph2agent/*' ]] || exit 26
+    [[ ${GONOPROXY:-} == 'github.com/graph2agent/*' ]] || exit 27
+    [[ ${GONOSUMDB:-} == 'github.com/graph2agent/*' ]] || exit 28
+    encoded=${GIT_CONFIG_VALUE_0#AUTHORIZATION: basic }
+    if decoded=$(printf '%s' "$encoded" | base64 --decode 2>/dev/null); then
+      :
+    else
+      decoded=$(printf '%s' "$encoded" | base64 -D)
+    fi
+    [[ $decoded == "x-access-token:${EXPECTED_TEST_TOKEN}" ]] || exit 32
+    unset decoded encoded
+    ;;
+  false)
+    [[ -z ${GIT_CONFIG_COUNT+x} ]] || exit 33
+    [[ -z ${GIT_CONFIG_KEY_0+x} ]] || exit 34
+    [[ -z ${GIT_CONFIG_VALUE_0+x} ]] || exit 35
+    [[ -z ${GOPRIVATE+x} && -z ${GONOPROXY+x} && -z ${GONOSUMDB+x} ]] || exit 36
+    ;;
+  *) exit 37 ;;
+esac
 
 printf '%s\0' "$@" >"$FAKE_GO_LOG"
 mkdir -p "$GOBIN"

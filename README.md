@@ -1,13 +1,77 @@
-# graph2agent GitHub automation
+# Never merge stale graph context. Let a bot keep it fresh.
 
-This private repository provides a composite GitHub Action and reusable
-workflows for checking or updating deterministic graph2agent annotations in
-Markdown. The composite action installs one exact private core tag, runs the
-requested operation, and stops. It never commits, pushes, opens a pull request,
-or changes Git credentials on disk. Publication is isolated in one explicitly
-write-capable reusable workflow.
+graph2agent's GitHub automation makes generated Mermaid context enforceable in
+two places: a read-only pull-request gate rejects stale annotations before
+merge, and a trusted daily job opens a focused Markdown-only refresh PR when
+the default branch drifts.
+
+> **Measured: 50.41% fewer exact-comprehension failures.** On one frozen,
+> paired benchmark of 330 private contracts, Mermaid plus graph2agent's
+> `standard` digest scored 270/330 exact versus 209/330 with Mermaid alone
+> (+18.48 percentage points; 61 digest-only wins and 0 Mermaid-only wins).
+> [Evidence and limitations](https://graph2agent.github.io/#evidence)
+
+The measured result used the frozen `standard` digest in one requested Codex
+configuration. These workflows default to the newer `interpreted-v3` Markdown
+profile; the benchmark does not establish the same effect for that profile or
+for every model, task, or Mermaid construct.
+
+## 1. Block a merge when local generation is stale
+
+```yaml
+name: Generated context
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  graph2agent:
+    uses: graph2agent/github-action/.github/workflows/check-markdown.yml@0000000000000000000000000000000000000000
+    with:
+      graph2agent-version: v0.2.0
+```
+
+Make this job a required status check. It runs `graph2agent check .` and never
+writes, commits, pushes, or receives write permission.
+
+## 2. Let a daily bot open the refresh PR
+
+```yaml
+name: Keep Mermaid context current
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  graph2agent:
+    uses: graph2agent/github-action/.github/workflows/maintain-markdown.yml@0000000000000000000000000000000000000000
+    with:
+      graph2agent-version: v0.2.0
+```
+
+The scheduled run does nothing when annotations are current. When they are
+stale, a read-only generation job emits a checksummed Markdown-only patch. A
+fresh publisher verifies it, pushes a non-force maintenance branch, and opens a
+PR. If one graph2agent maintenance PR is already open against that base branch,
+later daily runs reuse it instead of creating duplicates.
+
+Replace every all-zero reference with one reviewed 40-character commit SHA.
+The no-secret public setup activates with the `v0.2.0` public core release.
 
 ## Composite action
+
+The lower-level composite action installs one exact core tag, runs `check` or
+`update`, and stops. It never publishes Git changes or changes Git credentials
+on disk.
 
 ```yaml
 permissions:
@@ -19,8 +83,7 @@ steps:
       persist-credentials: false
   - uses: graph2agent/github-action@<audited-40-character-commit-sha>
     with:
-      token: ${{ secrets.GRAPH2AGENT_READ_TOKEN }}
-      version: v0.1.0
+      version: v0.2.0
       operation: check
       path: .
       profile: interpreted-v3
@@ -34,8 +97,8 @@ no Git publication step.
 
 | Input | Default | Contract |
 | --- | --- | --- |
-| `token` | required | Read-only access to the private core repository. |
-| `version` | `v0.1.0` | Exact SemVer tag; branches, ranges, and `latest` are rejected. |
+| `token` | empty | Optional read-only access during the private preview; public releases need none. |
+| `version` | `v0.2.0` | Exact SemVer tag; branches, ranges, and `latest` are rejected. |
 | `operation` | `check` | Exactly `check` or `update`. |
 | `path` | `.` | One repository-relative file or directory; traversal, symlink targets, leading hyphens, and line breaks are rejected. |
 | `profile` | `interpreted-v3` | One supported deterministic narrative profile. |
@@ -52,7 +115,16 @@ other repositories and has only `contents: read`. A successful call exports
 `checked=true` and the exact core version. See
 [`examples/reusable-check.yml`](examples/reusable-check.yml).
 
-## Write-capable reusable workflow
+## Scheduled pull-request workflow
+
+[`maintain-markdown.yml`](.github/workflows/maintain-markdown.yml) is the
+recommended write-capable automation. Call it only from `schedule` or
+`workflow_dispatch`. Generation runs with `contents: read`; only a fresh
+publisher gets `contents: write` and `pull-requests: write`. The publisher gets
+the validated patch, never the optional core read credential or core code. See
+[`examples/reusable-maintain.yml`](examples/reusable-maintain.yml).
+
+## Direct-branch workflow (advanced)
 
 [`update-markdown.yml`](.github/workflows/update-markdown.yml) updates every
 selected `.md` file, verifies the generated annotations, commits the resulting
@@ -79,7 +151,7 @@ added, deleted, mode-changing, symlink, and non-`.md` changes are rejected. An
 ephemeral masked authorization header is passed only to `git push`. A concurrent
 update or repository rule therefore fails the push instead of being bypassed.
 The workflow never force-pushes, changes branch protection, or opens a pull
-request.
+request. Prefer the scheduled pull-request workflow for unattended maintenance.
 
 Call the workflow only from a trusted event such as `workflow_dispatch`,
 `schedule`, or a protected-branch push. Do not invoke a write-capable workflow
@@ -92,17 +164,18 @@ commit SHA. See [`examples/reusable-update.yml`](examples/reusable-update.yml).
 | --- | --- | --- |
 | `path` | `.` | Existing repository-relative Markdown file or directory. |
 | `profile` | `interpreted-v3` | One supported deterministic narrative profile. |
-| `graph2agent-version` | `v0.1.0` | Exact private core SemVer tag. |
+| `graph2agent-version` | `v0.1.0` | Exact private-preview core SemVer tag. |
 | `branch` | empty | Existing short branch name; empty selects the caller default branch. |
 | `commit-message` | `docs: refresh graph2agent annotations` | Non-empty, single-line message of at most 200 characters. |
 
 The workflow returns `updated`, `files-changed`, `commit-sha`, and `branch`.
 `commit-sha` is empty when all selected annotations were already current.
 
-## Private-organization access
+## Private-preview compatibility
 
-The composite action and read-only reusable check currently use
-`GRAPH2AGENT_READ_TOKEN`. Create it as a fine-grained personal access token or
+Public `v0.2.0` use needs no core credential. While the core remains private,
+the composite action and reusable check can use `GRAPH2AGENT_READ_TOKEN`.
+Create it as a fine-grained personal access token or
 GitHub App installation token with:
 
 - access only to `graph2agent/graph2agent`;
@@ -139,6 +212,8 @@ commit SHA even when the repository is private.
 - [`reusable-check.yml`](examples/reusable-check.yml): reusable read-only check.
 - [`reusable-update.yml`](examples/reusable-update.yml): trusted-event,
   Markdown-only commit and non-force push.
+- [`reusable-maintain.yml`](examples/reusable-maintain.yml): daily or manual,
+  deduplicated Markdown-only pull request.
 
 The all-zero references in examples are deliberate invalid placeholders. A
 consumer must replace each with an audited commit SHA.

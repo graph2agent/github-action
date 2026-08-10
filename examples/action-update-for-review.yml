@@ -16,8 +16,7 @@ jobs:
       # Replace the placeholder with an audited 40-character commit SHA.
       - uses: graph2agent/github-action@0000000000000000000000000000000000000000
         with:
-          token: ${{ secrets.GRAPH2AGENT_READ_TOKEN }}
-          version: v0.1.0
+          version: v0.2.0
           operation: update
           path: docs
           profile: interpreted-v3

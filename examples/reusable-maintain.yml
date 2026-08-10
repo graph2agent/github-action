@@ -1,0 +1,17 @@
+name: Keep Mermaid context current
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  graph2agent:
+    uses: graph2agent/github-action/.github/workflows/maintain-markdown.yml@0000000000000000000000000000000000000000
+    with:
+      path: .
+      graph2agent-version: v0.2.0

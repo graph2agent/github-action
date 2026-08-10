@@ -1,15 +1,16 @@
 name: graph2agent Markdown
-description: Install an exact private graph2agent release and update or check Mermaid annotations.
+description: Install an exact graph2agent release and update or check Mermaid annotations.
 author: graph2agent
 
 inputs:
   token:
-    description: Read-only token with contents access to the private graph2agent core repository.
-    required: true
+    description: Optional read-only token for a private-preview core repository; public releases need none.
+    required: false
+    default: ''
   version:
     description: Exact graph2agent core SemVer tag to install.
     required: false
-    default: v0.1.0
+    default: v0.2.0
   operation:
     description: Operation to run; update writes annotations and check verifies them.
     required: false
@@ -47,7 +48,7 @@ runs:
         go-version: ${{ inputs.go-version }}
         cache: false
 
-    - name: Install pinned private graph2agent release
+    - name: Install pinned graph2agent release
       id: install
       shell: bash
       env:

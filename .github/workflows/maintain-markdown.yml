@@ -1,0 +1,327 @@
+name: Maintain graph2agent Markdown with a pull request
+
+on:
+  workflow_call:
+    inputs:
+      path:
+        description: Existing Markdown file or directory in the caller repository.
+        required: false
+        type: string
+        default: .
+      profile:
+        description: Deterministic graph2agent narrative profile.
+        required: false
+        type: string
+        default: interpreted-v3
+      graph2agent-version:
+        description: Exact graph2agent core SemVer tag.
+        required: false
+        type: string
+        default: v0.2.0
+      base-branch:
+        description: Caller base branch; empty selects its default branch.
+        required: false
+        type: string
+        default: ''
+      commit-message:
+        description: Single-line commit message for generated Markdown.
+        required: false
+        type: string
+        default: 'docs: refresh graph2agent annotations'
+      pull-request-title:
+        description: Single-line pull request title.
+        required: false
+        type: string
+        default: 'docs: refresh graph2agent annotations'
+    secrets:
+      GRAPH2AGENT_READ_TOKEN:
+        description: Optional read-only token for a private-preview core repository.
+        required: false
+    outputs:
+      updated:
+        description: true when the default branch needs a graph2agent refresh.
+        value: ${{ jobs.prepare.outputs.updated }}
+      files-changed:
+        description: Number of tracked Markdown files in the validated patch.
+        value: ${{ jobs.prepare.outputs.files }}
+      pull-request-number:
+        description: Existing or newly created maintenance pull request number.
+        value: ${{ jobs.publish.outputs.pull-request-number }}
+      pull-request-url:
+        description: Existing or newly created maintenance pull request URL.
+        value: ${{ jobs.publish.outputs.pull-request-url }}
+      branch:
+        description: Maintenance branch, empty when no update was needed.
+        value: ${{ jobs.publish.outputs.branch }}
+      created:
+        description: true only when this invocation created a new pull request.
+        value: ${{ jobs.publish.outputs.created }}
+
+# The caller deliberately grants contents and pull-requests write. Generation
+# runs in a read-only job; the fresh publisher receives only a checksummed,
+# Markdown-only patch and never receives the optional core read token.
+permissions: {}
+
+concurrency:
+  group: graph2agent-maintain-${{ github.repository }}-${{ inputs.base-branch || github.event.repository.default_branch || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      updated: ${{ steps.prepare.outputs.updated }}
+      files: ${{ steps.prepare.outputs.files }}
+      patch-sha256: ${{ steps.prepare.outputs['patch-sha256'] }}
+      base-sha: ${{ steps.prepare.outputs['base-sha'] }}
+      base-branch: ${{ steps.request.outputs.base-branch }}
+    steps:
+      - name: Validate maintenance request
+        id: request
+        shell: bash
+        env:
+          CALLER_EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_BRANCH: ${{ inputs.base-branch }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          COMMIT_MESSAGE: ${{ inputs.commit-message }}
+          PULL_REQUEST_TITLE: ${{ inputs.pull-request-title }}
+          GRAPH2AGENT_VERSION: ${{ inputs.graph2agent-version }}
+        run: |
+          set -euo pipefail
+          fail() { printf 'graph2agent maintain: %s\n' "$1" >&2; exit 2; }
+
+          case "$CALLER_EVENT_NAME" in
+            pull_request | pull_request_target)
+              fail "pull request events are not allowed to publish"
+              ;;
+          esac
+          [[ -n "$CALLER_EVENT_NAME" && "$CALLER_EVENT_NAME" != *$'\n'* && "$CALLER_EVENT_NAME" != *$'\r'* ]] ||
+            fail "caller event name is invalid"
+
+          branch=$REQUESTED_BRANCH
+          [[ -n "$branch" ]] || branch=$DEFAULT_BRANCH
+          [[ -n "$branch" && "$branch" != *$'\n'* && "$branch" != *$'\r'* ]] ||
+            fail "no valid base branch was selected"
+          case "$branch" in
+            refs/* | -* | HEAD | @) fail "base branch must be a short branch name" ;;
+          esac
+          git check-ref-format --branch "$branch" >/dev/null 2>&1 || fail "base branch is invalid"
+
+          for value in "$COMMIT_MESSAGE" "$PULL_REQUEST_TITLE"; do
+            [[ -n "$value" && ${#value} -le 200 ]] || fail "commit message or pull request title is invalid"
+            [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || fail "messages must be one line"
+            [[ ! "$value" =~ [[:cntrl:]] ]] || fail "messages contain a control character"
+          done
+
+          semver_pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          [[ "$GRAPH2AGENT_VERSION" =~ $semver_pattern ]] ||
+            fail "graph2agent-version must be an exact SemVer tag"
+          printf 'base-branch=%s\n' "$branch" >>"$GITHUB_OUTPUT"
+
+      - name: Check out caller base branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ steps.request.outputs.base-branch }}
+          path: caller
+          fetch-depth: 1
+          persist-credentials: false
+          show-progress: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.25.x
+          cache: false
+
+      - name: Install exact graph2agent release
+        shell: bash
+        env:
+          GRAPH2AGENT_READ_TOKEN: ${{ secrets.GRAPH2AGENT_READ_TOKEN }}
+          GRAPH2AGENT_VERSION: ${{ inputs.graph2agent-version }}
+          GRAPH2AGENT_BINARY: ${{ runner.temp }}/graph2agent
+        run: |
+          set -euo pipefail
+          fail() { printf 'graph2agent maintain: %s\n' "$1" >&2; exit 2; }
+          token=$GRAPH2AGENT_READ_TOKEN
+          unset GRAPH2AGENT_READ_TOKEN
+          [[ "$token" != *$'\n'* && "$token" != *$'\r'* ]] || fail "read token is invalid"
+          if [[ -n "$token" ]]; then
+            basic_auth=$(printf 'x-access-token:%s' "$token" | base64 | tr -d '\r\n')
+            unset token
+            GOBIN=${RUNNER_TEMP%/} \
+            GOTOOLCHAIN=local \
+            GOPRIVATE='github.com/graph2agent/*' \
+            GONOPROXY='github.com/graph2agent/*' \
+            GONOSUMDB='github.com/graph2agent/*' \
+            GIT_TERMINAL_PROMPT=0 \
+            GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0='http.https://github.com/.extraheader' \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${basic_auth}" \
+              go install "github.com/graph2agent/graph2agent/cmd/graph2agent@${GRAPH2AGENT_VERSION}"
+            unset basic_auth
+          else
+            unset token
+            GOBIN=${RUNNER_TEMP%/} GOTOOLCHAIN=local GIT_TERMINAL_PROMPT=0 \
+              go install "github.com/graph2agent/graph2agent/cmd/graph2agent@${GRAPH2AGENT_VERSION}"
+          fi
+          [[ -x "$GRAPH2AGENT_BINARY" && ! -L "$GRAPH2AGENT_BINARY" ]]
+
+      - name: Prepare checksummed Markdown-only patch
+        id: prepare
+        uses: graph2agent/github-action/prepare@f39b93a81f885026b39945e8413992690826b9c0
+        with:
+          binary: ${{ runner.temp }}/graph2agent
+          workspace: ${{ github.workspace }}/caller
+          path: ${{ inputs.path }}
+          profile: ${{ inputs.profile }}
+          branch: ${{ steps.request.outputs.base-branch }}
+          artifact-directory: ${{ runner.temp }}/graph2agent-update
+
+      - name: Upload validated patch
+        if: steps.prepare.outputs.updated == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: graph2agent-maintenance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/graph2agent-update
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          include-hidden-files: false
+
+  publish:
+    if: needs.prepare.outputs.updated == 'true'
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      pull-request-number: ${{ steps.result.outputs.pull-request-number }}
+      pull-request-url: ${{ steps.result.outputs.pull-request-url }}
+      branch: ${{ steps.selection.outputs.branch }}
+      created: ${{ steps.result.outputs.created }}
+    steps:
+      - name: Check out exact patch base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.prepare.outputs.base-sha }}
+          path: caller
+          fetch-depth: 1
+          persist-credentials: false
+          show-progress: false
+
+      - name: Download validated patch
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: graph2agent-maintenance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/graph2agent-update
+
+      - name: Reuse one open maintenance pull request or select a new branch
+        id: selection
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BASE_BRANCH: ${{ needs.prepare.outputs.base-branch }}
+          BASE_SHA: ${{ needs.prepare.outputs.base-sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          response=$(mktemp "${RUNNER_TEMP%/}/graph2agent-open-prs.XXXXXX")
+          GH_TOKEN=$GH_TOKEN gh api --method GET "repos/${REPOSITORY}/pulls" \
+            -f state=open -F per_page=100 >"$response"
+          match=$(jq -r --arg repository "$REPOSITORY" --arg base "$BASE_BRANCH" '
+            [.[] | select(
+              .head.repo.full_name == $repository and
+              .base.ref == $base and
+              (.head.ref | startswith("graph2agent/refresh-"))
+            )] | first | if . then [.number, .html_url, .head.ref] | @tsv else "" end
+          ' "$response")
+          if [[ -n "$match" ]]; then
+            IFS=$'\t' read -r number url branch <<<"$match"
+            printf 'found=true\nnumber=%s\nurl=%s\nbranch=%s\n' "$number" "$url" "$branch" >>"$GITHUB_OUTPUT"
+          else
+            branch="graph2agent/refresh-${BASE_SHA:0:12}-${RUN_ID}"
+            git check-ref-format --branch "$branch" >/dev/null
+            printf 'found=false\nnumber=\nurl=\nbranch=%s\n' "$branch" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify, commit, and push Markdown-only maintenance branch
+        if: steps.selection.outputs.found != 'true'
+        id: publish
+        uses: graph2agent/github-action/publish@f39b93a81f885026b39945e8413992690826b9c0
+        with:
+          workspace: ${{ github.workspace }}/caller
+          artifact-directory: ${{ runner.temp }}/graph2agent-update
+          patch-sha256: ${{ needs.prepare.outputs.patch-sha256 }}
+          files: ${{ needs.prepare.outputs.files }}
+          base-sha: ${{ needs.prepare.outputs.base-sha }}
+          branch: ${{ steps.selection.outputs.branch }}
+          commit-message: ${{ inputs.commit-message }}
+          repository: ${{ github.repository }}
+          server-url: ${{ github.server_url }}
+          event-name: ${{ github.event_name }}
+          token: ${{ github.token }}
+
+      - name: Open focused maintenance pull request
+        if: steps.selection.outputs.found != 'true'
+        id: create
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BASE_BRANCH: ${{ needs.prepare.outputs.base-branch }}
+          BASE_SHA: ${{ needs.prepare.outputs.base-sha }}
+          HEAD_BRANCH: ${{ steps.selection.outputs.branch }}
+          TITLE: ${{ inputs.pull-request-title }}
+          GRAPH2AGENT_VERSION: ${{ inputs.graph2agent-version }}
+          FILES: ${{ needs.prepare.outputs.files }}
+        run: |
+          set -euo pipefail
+          body=$(cat <<EOF
+          graph2agent found stale Mermaid context on the default branch and generated a Markdown-only refresh.
+
+          - Base: \`${BASE_SHA}\`
+          - Compiler: \`${GRAPH2AGENT_VERSION}\`
+          - Files changed: ${FILES}
+
+          The generation job had read-only repository permission. A fresh publisher verified the checksummed patch, pushed this non-force branch, and never received the core installation credential.
+
+          <!-- graph2agent-maintenance-pr:v1 -->
+          EOF
+          )
+          response=$(mktemp "${RUNNER_TEMP%/}/graph2agent-created-pr.XXXXXX")
+          GH_TOKEN=$GH_TOKEN gh api --method POST "repos/${REPOSITORY}/pulls" \
+            -f title="$TITLE" -f head="$HEAD_BRANCH" -f base="$BASE_BRANCH" -f body="$body" >"$response"
+          number=$(jq -r '.number' "$response")
+          url=$(jq -r '.html_url' "$response")
+          [[ "$number" =~ ^[1-9][0-9]*$ && "$url" == https://* ]]
+          printf 'number=%s\nurl=%s\n' "$number" "$url" >>"$GITHUB_OUTPUT"
+
+      - name: Record maintenance result
+        id: result
+        shell: bash
+        env:
+          FOUND: ${{ steps.selection.outputs.found }}
+          EXISTING_NUMBER: ${{ steps.selection.outputs.number }}
+          EXISTING_URL: ${{ steps.selection.outputs.url }}
+          CREATED_NUMBER: ${{ steps.create.outputs.number }}
+          CREATED_URL: ${{ steps.create.outputs.url }}
+        run: |
+          set -euo pipefail
+          if [[ "$FOUND" == true ]]; then
+            printf 'created=false\npull-request-number=%s\npull-request-url=%s\n' \
+              "$EXISTING_NUMBER" "$EXISTING_URL" >>"$GITHUB_OUTPUT"
+          else
+            printf 'created=true\npull-request-number=%s\npull-request-url=%s\n' \
+              "$CREATED_NUMBER" "$CREATED_URL" >>"$GITHUB_OUTPUT"
+          fi
