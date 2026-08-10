@@ -9,8 +9,8 @@ export LC_ALL=C
 
 real_git=$(command -v git)
 test_token='write-test-token-never-print'
-test_header=$(printf 'x-access-token:%s' "$test_token" | base64 | tr -d '\r\n')
-test_header="AUTHORIZATION: basic ${test_header}"
+test_basic_auth=$(printf 'x-access-token:%s' "$test_token" | base64 | tr -d '\r\n')
+test_header="AUTHORIZATION: basic ${test_basic_auth}"
 test_header_digest=$(printf '%s' "$test_header" | sha256sum)
 test_header_digest=${test_header_digest%% *}
 
@@ -166,6 +166,40 @@ run_publish() {
   GRAPH2AGENT_PUBLISH_TOKEN="$test_token" \
   GRAPH2AGENT_TEST_MODE=1 \
   GRAPH2AGENT_TEST_REMOTE_URL="$bare_remote" \
+  RUNNER_TEMP="$case_root/runner" \
+  GITHUB_WORKSPACE="$case_root" \
+  GITHUB_OUTPUT="$output" \
+    bash "$repo_root/publish/run.sh"
+}
+
+run_publish_production_simulation() {
+  local case_root=$1
+  local workspace=$2
+  local artifact=$3
+  local output=$4
+  local digest=$5
+  local files=$6
+  local base_sha=$7
+  local bare_remote=$8
+  local push_log=$9
+  : >"$output"
+  PATH="$git_wrapper_dir:$PATH" \
+  REAL_GIT="$real_git" \
+  TEST_BARE_REMOTE="$bare_remote" \
+  TEST_PUSH_LOG="$push_log" \
+  EXPECTED_AUTH_DIGEST="$test_header_digest" \
+  GRAPH2AGENT_PUBLISH_WORKSPACE="$workspace" \
+  GRAPH2AGENT_PUBLISH_ARTIFACT_DIRECTORY="$artifact" \
+  GRAPH2AGENT_PUBLISH_PATCH_SHA256="$digest" \
+  GRAPH2AGENT_PUBLISH_FILES="$files" \
+  GRAPH2AGENT_PUBLISH_BASE_SHA="$base_sha" \
+  GRAPH2AGENT_PUBLISH_BRANCH=main \
+  GRAPH2AGENT_PUBLISH_COMMIT_MESSAGE='docs: refresh graph2agent annotations' \
+  GRAPH2AGENT_PUBLISH_REPOSITORY=acme/demo \
+  GRAPH2AGENT_PUBLISH_SERVER_URL=https://github.example.invalid \
+  GRAPH2AGENT_PUBLISH_EVENT_NAME=workflow_dispatch \
+  GRAPH2AGENT_PUBLISH_TOKEN="$test_token" \
+  GITHUB_ACTIONS=true \
   RUNNER_TEMP="$case_root/runner" \
   GITHUB_WORKSPACE="$case_root" \
   GITHUB_OUTPUT="$output" \
@@ -346,6 +380,32 @@ assert_publish_rejected_patch() {
   fi
   [[ ! -e "$push_log" || ! -s "$push_log" ]] || fail_test "publish pushed rejected ${case_name} patch"
 }
+
+# Exercise the production authorization branch with a Git wrapper that verifies
+# the ephemeral header and substitutes a real local bare remote for HTTPS.
+production_metadata=$(make_patch_case production-auth md)
+production_root=$(printf '%s\n' "$production_metadata" | sed -n '1p')
+production_workspace=$(printf '%s\n' "$production_metadata" | sed -n '2p')
+production_artifact=$(printf '%s\n' "$production_metadata" | sed -n '3p')
+production_bare=$(printf '%s\n' "$production_metadata" | sed -n '4p')
+production_base=$(printf '%s\n' "$production_metadata" | sed -n '5p')
+production_digest=$(printf '%s\n' "$production_metadata" | sed -n '6p')
+production_output=${production_root}/output
+production_push_log=${production_root}/push.bin
+production_captured=$(run_publish_production_simulation \
+  "$production_root" "$production_workspace" "$production_artifact" "$production_output" \
+  "$production_digest" 1 "$production_base" "$production_bare" "$production_push_log" 2>&1)
+production_commit=$(output_value commit "$production_output")
+[[ $($real_git --git-dir="$production_bare" rev-parse refs/heads/main) == "$production_commit" ]] ||
+  fail_test 'production authorization simulation did not push the validated commit'
+[[ "$production_captured" == *"::add-mask::${test_basic_auth}"* ]] ||
+  fail_test 'production authorization branch did not mask the derived header'
+[[ "$production_captured" != *"$test_token"* && "$production_captured" != *"$test_header"* ]] ||
+  fail_test 'production authorization output exposed token or complete header material'
+if git_in "$production_workspace" config --local --name-only --get-regexp \
+  '^(credential\.|http\..*\.extraheader$)' >/dev/null 2>&1; then
+  fail_test 'production authorization simulation persisted Git credentials'
+fi
 
 # The write-authorized job revalidates the artifact independently.
 assert_publish_rejected_patch non-md non-md 'non-Markdown file'

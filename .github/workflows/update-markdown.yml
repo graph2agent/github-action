@@ -1,0 +1,225 @@
+name: Update graph2agent Markdown
+
+on:
+  workflow_call:
+    inputs:
+      path:
+        description: Existing Markdown file or directory in the caller repository.
+        required: false
+        type: string
+        default: .
+      profile:
+        description: Deterministic graph2agent narrative profile.
+        required: false
+        type: string
+        default: interpreted-v3
+      graph2agent-version:
+        description: Exact private graph2agent core SemVer tag.
+        required: false
+        type: string
+        default: v0.1.0
+      branch:
+        description: Existing caller branch to update; empty selects its default branch.
+        required: false
+        type: string
+        default: ''
+      commit-message:
+        description: Single-line commit message for a generated Markdown update.
+        required: false
+        type: string
+        default: 'docs: refresh graph2agent annotations'
+    secrets:
+      GRAPH2AGENT_DEPLOY_KEY:
+        description: Unique read-only deploy key for the private graph2agent core repository.
+        required: true
+    outputs:
+      updated:
+        description: true when this invocation committed and pushed an update.
+        value: ${{ jobs.prepare.outputs.updated }}
+      files-changed:
+        description: Number of tracked Markdown files changed by graph2agent.
+        value: ${{ jobs.prepare.outputs.files }}
+      commit-sha:
+        description: New commit SHA, or an empty string when no update was needed.
+        value: ${{ jobs.publish.outputs.commit }}
+      branch:
+        description: Caller branch selected for the update.
+        value: ${{ jobs.prepare.outputs.branch }}
+
+# The caller must grant contents: write. The prepare job receives only read
+# authority; write authority exists only on the fresh publisher runner.
+permissions: {}
+
+concurrency:
+  group: graph2agent-update-${{ github.repository }}-${{ inputs.branch || github.event.repository.default_branch || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      updated: ${{ steps.prepare.outputs.updated }}
+      files: ${{ steps.prepare.outputs.files }}
+      patch-sha256: ${{ steps.prepare.outputs['patch-sha256'] }}
+      base-sha: ${{ steps.prepare.outputs['base-sha'] }}
+      branch: ${{ steps.request.outputs.branch }}
+    steps:
+      - name: Validate update request
+        id: request
+        shell: bash
+        env:
+          CALLER_EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_BRANCH: ${{ inputs.branch }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          COMMIT_MESSAGE: ${{ inputs.commit-message }}
+          GRAPH2AGENT_VERSION: ${{ inputs.graph2agent-version }}
+        run: |
+          set -euo pipefail
+          fail() { printf 'graph2agent update: %s\n' "$1" >&2; exit 2; }
+
+          case "$CALLER_EVENT_NAME" in
+            pull_request | pull_request_target)
+              fail "pull request events are not allowed to publish"
+              ;;
+          esac
+          [[ -n "$CALLER_EVENT_NAME" && "$CALLER_EVENT_NAME" != *$'\n'* && "$CALLER_EVENT_NAME" != *$'\r'* ]] ||
+            fail "caller event name is invalid"
+
+          branch=$REQUESTED_BRANCH
+          [[ -n "$branch" ]] || branch=$DEFAULT_BRANCH
+          [[ -n "$branch" && "$branch" != *$'\n'* && "$branch" != *$'\r'* ]] ||
+            fail "no valid branch was selected"
+          case "$branch" in
+            refs/* | -* | HEAD | @) fail "branch must be a short branch name" ;;
+          esac
+          git check-ref-format --branch "$branch" >/dev/null 2>&1 ||
+            fail "branch is not a valid Git branch name"
+
+          message=$COMMIT_MESSAGE
+          [[ -n "$message" && ${#message} -le 200 ]] || fail "commit message is invalid"
+          [[ "$message" != *$'\n'* && "$message" != *$'\r'* ]] ||
+            fail "commit message must be one line"
+          [[ ! "$message" =~ [[:cntrl:]] ]] || fail "commit message contains a control character"
+
+          semver_pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          [[ "$GRAPH2AGENT_VERSION" =~ $semver_pattern ]] ||
+            fail "graph2agent-version must be an exact SemVer tag"
+
+          printf 'branch=%s\n' "$branch" >>"$GITHUB_OUTPUT"
+
+      - name: Check out caller branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ steps.request.outputs.branch }}
+          path: caller
+          fetch-depth: 1
+          persist-credentials: false
+          show-progress: false
+
+      - name: Check out exact private core tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: graph2agent/graph2agent
+          ref: ${{ inputs.graph2agent-version }}
+          path: core
+          fetch-depth: 1
+          ssh-key: ${{ secrets.GRAPH2AGENT_DEPLOY_KEY }}
+          ssh-strict: true
+          persist-credentials: false
+          show-progress: false
+
+      - name: Assert checkout credentials are absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          for repository in caller core; do
+            if git -C "$repository" config --local --name-only --get-regexp \
+              '^(credential\.|http\..*\.extraheader$|core\.sshCommand$)' >/dev/null 2>&1; then
+              printf 'checkout credentials persisted in %s\n' "$repository" >&2
+              exit 2
+            fi
+          done
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.25.x
+          cache: false
+
+      - name: Build exact checked-out core
+        working-directory: core
+        shell: bash
+        env:
+          GRAPH2AGENT_BINARY: ${{ runner.temp }}/graph2agent
+        run: |
+          set -euo pipefail
+          GOTOOLCHAIN=local go build -trimpath -o "$GRAPH2AGENT_BINARY" ./cmd/graph2agent
+          [[ -x "$GRAPH2AGENT_BINARY" && ! -L "$GRAPH2AGENT_BINARY" ]]
+
+      - name: Prepare checksummed Markdown-only patch
+        id: prepare
+        uses: graph2agent/github-action/prepare@449529f8c3c74f82ad3536e33280d2b6bcbcf60e
+        with:
+          binary: ${{ runner.temp }}/graph2agent
+          workspace: ${{ github.workspace }}/caller
+          path: ${{ inputs.path }}
+          profile: ${{ inputs.profile }}
+          branch: ${{ steps.request.outputs.branch }}
+          artifact-directory: ${{ runner.temp }}/graph2agent-update
+
+      - name: Upload validated patch
+        if: steps.prepare.outputs.updated == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: graph2agent-update-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/graph2agent-update
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          include-hidden-files: false
+
+  publish:
+    if: needs.prepare.outputs.updated == 'true'
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      commit: ${{ steps.publish.outputs.commit }}
+    steps:
+      - name: Check out exact patch base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.prepare.outputs.base-sha }}
+          path: caller
+          fetch-depth: 1
+          persist-credentials: false
+          show-progress: false
+
+      - name: Download validated patch
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: graph2agent-update-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/graph2agent-update
+
+      - name: Verify, commit, and push Markdown-only update
+        id: publish
+        uses: graph2agent/github-action/publish@449529f8c3c74f82ad3536e33280d2b6bcbcf60e
+        with:
+          workspace: ${{ github.workspace }}/caller
+          artifact-directory: ${{ runner.temp }}/graph2agent-update
+          patch-sha256: ${{ needs.prepare.outputs.patch-sha256 }}
+          files: ${{ needs.prepare.outputs.files }}
+          base-sha: ${{ needs.prepare.outputs.base-sha }}
+          branch: ${{ needs.prepare.outputs.branch }}
+          commit-message: ${{ inputs.commit-message }}
+          repository: ${{ github.repository }}
+          server-url: ${{ github.server_url }}
+          event-name: ${{ github.event_name }}
+          token: ${{ github.token }}

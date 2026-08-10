@@ -1,0 +1,28 @@
+name: Refresh graph2agent annotations
+
+# Run this write-capable workflow only from trusted events. A schedule is a
+# useful alternative when annotations should be refreshed automatically.
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Existing branch to update; empty selects the default branch.
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  graph2agent:
+    # Replace the placeholder with an audited 40-character commit SHA.
+    uses: graph2agent/github-action/.github/workflows/update-markdown.yml@0000000000000000000000000000000000000000
+    with:
+      path: .
+      profile: interpreted-v3
+      graph2agent-version: v0.1.0
+      branch: ${{ inputs.branch }}
+      commit-message: 'docs: refresh graph2agent annotations'
+    secrets:
+      GRAPH2AGENT_DEPLOY_KEY: ${{ secrets.GRAPH2AGENT_DEPLOY_KEY }}

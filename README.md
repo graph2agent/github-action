@@ -1,10 +1,11 @@
 # graph2agent GitHub automation
 
-This private repository provides a composite GitHub Action for checking or
-updating deterministic graph2agent annotations in Markdown. It installs one
-exact private core tag, runs the requested operation, and stops. The composite
-action never commits, pushes, opens a pull request, or changes Git credentials
-on disk.
+This private repository provides a composite GitHub Action and reusable
+workflows for checking or updating deterministic graph2agent annotations in
+Markdown. The composite action installs one exact private core tag, runs the
+requested operation, and stops. It never commits, pushes, opens a pull request,
+or changes Git credentials on disk. Publication is isolated in one explicitly
+write-capable reusable workflow.
 
 ## Composite action
 
@@ -51,14 +52,57 @@ other repositories and has only `contents: read`. A successful call exports
 `checked=true` and the exact core version. See
 [`examples/reusable-check.yml`](examples/reusable-check.yml).
 
-The repository intentionally does not currently include automation that
-commits, pushes bot branches, or opens pull requests. Consumers needing an
-update can run the composite action with `operation: update`, inspect the diff,
-and publish it through a separately reviewed workflow.
+## Write-capable reusable workflow
+
+[`update-markdown.yml`](.github/workflows/update-markdown.yml) updates every
+selected `.md` file, verifies the generated annotations, commits the resulting
+Markdown-only diff, and performs a normal non-force push. Its default `path: .`
+selects the caller repository recursively; its default empty `branch` selects
+the caller repository's default branch.
+
+The caller must deliberately grant `contents: write` and pass its unique
+read-only core deploy key as `GRAPH2AGENT_DEPLOY_KEY`. Reusable workflows cannot
+elevate a caller token. The workflow separates generation from publication:
+
+1. `prepare` has only `contents: read`. It checks out the exact private core
+   tag with the deploy key, builds and runs it, verifies the result, and uploads
+   a checksummed binary patch containing only modifications to tracked regular
+   `.md` files.
+2. `publish` starts on a fresh runner with `contents: write`. It receives no
+   core credential and runs no core code. A separately SHA-pinned publisher
+   verifies and reapplies the patch against its exact base, independently
+   repeats the Markdown-only checks, commits with hooks disabled, and performs
+   one normal push with the short-lived caller `GITHUB_TOKEN`.
+
+Every checkout disables persisted credentials. Staged, untracked, renamed,
+added, deleted, mode-changing, symlink, and non-`.md` changes are rejected. An
+ephemeral masked authorization header is passed only to `git push`. A concurrent
+update or repository rule therefore fails the push instead of being bypassed.
+The workflow never force-pushes, changes branch protection, or opens a pull
+request.
+
+Call the workflow only from a trusted event such as `workflow_dispatch`,
+`schedule`, or a protected-branch push. Do not invoke a write-capable workflow
+with untrusted pull-request code. Pin the reusable workflow to an audited full
+commit SHA. See [`examples/reusable-update.yml`](examples/reusable-update.yml).
+
+### Update inputs and outputs
+
+| Input | Default | Contract |
+| --- | --- | --- |
+| `path` | `.` | Existing repository-relative Markdown file or directory. |
+| `profile` | `interpreted-v3` | One supported deterministic narrative profile. |
+| `graph2agent-version` | `v0.1.0` | Exact private core SemVer tag. |
+| `branch` | empty | Existing short branch name; empty selects the caller default branch. |
+| `commit-message` | `docs: refresh graph2agent annotations` | Non-empty, single-line message of at most 200 characters. |
+
+The workflow returns `updated`, `files-changed`, `commit-sha`, and `branch`.
+`commit-sha` is empty when all selected annotations were already current.
 
 ## Private-organization access
 
-Create `GRAPH2AGENT_READ_TOKEN` as a fine-grained personal access token or
+The composite action and read-only reusable check currently use
+`GRAPH2AGENT_READ_TOKEN`. Create it as a fine-grained personal access token or
 GitHub App installation token with:
 
 - access only to `graph2agent/graph2agent`;
@@ -75,6 +119,13 @@ authorization header in memory, and supplies that header only through
 `go install` process. It does not run `git config`, add credentials to a remote
 URL, use a credential helper, print the token, or persist it in a file.
 
+The write-capable reusable workflow does not accept that token. Give each
+caller repository a distinct read-only deploy key for
+`graph2agent/graph2agent`, store the private half only as the repository secret
+`GRAPH2AGENT_DEPLOY_KEY`, and keep the public half registered on the core
+repository with write access disabled. The key is available only in `prepare`;
+it is not uploaded with the patch or passed to `publish`.
+
 Private Actions sharing must also be enabled for this repository in the
 organization settings. Pin this action or reusable workflow to a reviewed full
 commit SHA even when the repository is private.
@@ -86,6 +137,8 @@ commit SHA even when the repository is private.
   manual working-tree update that prints/fails on the resulting diff and does
   not publish it.
 - [`reusable-check.yml`](examples/reusable-check.yml): reusable read-only check.
+- [`reusable-update.yml`](examples/reusable-update.yml): trusted-event,
+  Markdown-only commit and non-force push.
 
 The all-zero references in examples are deliberate invalid placeholders. A
 consumer must replace each with an audited commit SHA.
@@ -98,5 +151,6 @@ make check
 
 The test suite uses fake `go` and `graph2agent` executables. It verifies exact
 arguments, rejects unsafe input, checks that credentials are environment-only,
-and confirms that captured output contains no test token. CI pins external
-Actions by full SHA and installs an exact actionlint release.
+tests the reusable update workflow's request/diff/commit/push boundaries, and
+confirms that captured output contains no test token. CI pins external Actions
+by full SHA and installs an exact actionlint release.
