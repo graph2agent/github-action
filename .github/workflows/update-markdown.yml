@@ -162,7 +162,7 @@ jobs:
 
       - name: Prepare checksummed Markdown-only patch
         id: prepare
-        uses: graph2agent/github-action/prepare@449529f8c3c74f82ad3536e33280d2b6bcbcf60e
+        uses: graph2agent/github-action/prepare@f39b93a81f885026b39945e8413992690826b9c0
         with:
           binary: ${{ runner.temp }}/graph2agent
           workspace: ${{ github.workspace }}/caller
@@ -210,7 +210,7 @@ jobs:
 
       - name: Verify, commit, and push Markdown-only update
         id: publish
-        uses: graph2agent/github-action/publish@449529f8c3c74f82ad3536e33280d2b6bcbcf60e
+        uses: graph2agent/github-action/publish@f39b93a81f885026b39945e8413992690826b9c0
         with:
           workspace: ${{ github.workspace }}/caller
           artifact-directory: ${{ runner.temp }}/graph2agent-update
