@@ -15,8 +15,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Replace the placeholder with an audited 40-character commit SHA.
-      - uses: graph2agent/github-action@0000000000000000000000000000000000000000
+      - uses: graph2agent/github-action@b467d92b8c14a87fe977bc6a12a0f9fc685ab047
         with:
           version: v0.2.0
           operation: check

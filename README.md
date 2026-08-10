@@ -33,7 +33,7 @@ permissions:
 
 jobs:
   graph2agent:
-    uses: graph2agent/github-action/.github/workflows/check-markdown.yml@0000000000000000000000000000000000000000
+    uses: graph2agent/github-action/.github/workflows/check-markdown.yml@b467d92b8c14a87fe977bc6a12a0f9fc685ab047
     with:
       graph2agent-version: v0.2.0
 ```
@@ -57,7 +57,7 @@ permissions:
 
 jobs:
   graph2agent:
-    uses: graph2agent/github-action/.github/workflows/maintain-markdown.yml@0000000000000000000000000000000000000000
+    uses: graph2agent/github-action/.github/workflows/maintain-markdown.yml@b467d92b8c14a87fe977bc6a12a0f9fc685ab047
     with:
       graph2agent-version: v0.2.0
 ```
@@ -68,8 +68,8 @@ fresh publisher verifies it, pushes a non-force maintenance branch, and opens a
 PR. If one graph2agent maintenance PR is already open against that base branch,
 later daily runs reuse it instead of creating duplicates.
 
-Replace every all-zero reference with one reviewed 40-character commit SHA.
-The no-secret public setup activates with the `v0.2.0` public core release.
+Both examples pin the reviewed Apache-2.0 launch implementation by its full
+commit SHA. The no-secret public setup is active with the `v0.2.0` core release.
 
 ## Composite action
 
@@ -85,7 +85,7 @@ steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
     with:
       persist-credentials: false
-  - uses: graph2agent/github-action@<audited-40-character-commit-sha>
+  - uses: graph2agent/github-action@b467d92b8c14a87fe977bc6a12a0f9fc685ab047
     with:
       version: v0.2.0
       operation: check
@@ -219,8 +219,9 @@ commit SHA even when the repository is private.
 - [`reusable-maintain.yml`](examples/reusable-maintain.yml): daily or manual,
   deduplicated Markdown-only pull request.
 
-The all-zero references in examples are deliberate invalid placeholders. A
-consumer must replace each with an audited commit SHA.
+The public check and maintenance examples pin the reviewed launch
+implementation by full commit SHA. Review and update that pin deliberately
+when adopting a newer release.
 
 ## Development
 

@@ -10,8 +10,7 @@ permissions:
 
 jobs:
   graph2agent:
-    # Replace the placeholder with an audited 40-character commit SHA.
-    uses: graph2agent/github-action/.github/workflows/check-markdown.yml@0000000000000000000000000000000000000000
+    uses: graph2agent/github-action/.github/workflows/check-markdown.yml@b467d92b8c14a87fe977bc6a12a0f9fc685ab047
     with:
       path: .
       profile: interpreted-v3
