@@ -1,0 +1,62 @@
+name: Publish graph2agent Markdown update
+description: Verify, commit, and non-force push one checksummed Markdown-only patch.
+
+inputs:
+  workspace:
+    description: Absolute path to the clean caller repository checkout.
+    required: true
+  artifact-directory:
+    description: Directory containing update.patch and update.patch.sha256.
+    required: true
+  patch-sha256:
+    description: Expected SHA-256 digest supplied by the read-only prepare job.
+    required: true
+  files:
+    description: Expected number of modified tracked Markdown files.
+    required: true
+  base-sha:
+    description: Exact caller commit from which the patch was produced.
+    required: true
+  branch:
+    description: Existing short branch to receive the commit.
+    required: true
+  commit-message:
+    description: Validated single-line commit message.
+    required: true
+  repository:
+    description: Exact owner/name of the caller repository.
+    required: true
+  server-url:
+    description: HTTPS URL of the caller GitHub server.
+    required: true
+  event-name:
+    description: Original caller event name.
+    required: true
+  token:
+    description: Short-lived caller GITHUB_TOKEN with contents write.
+    required: true
+
+outputs:
+  commit:
+    description: SHA of the generated commit.
+    value: ${{ steps.publish.outputs.commit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Verify, commit, and push patch
+      id: publish
+      shell: bash
+      env:
+        GRAPH2AGENT_PUBLISH_WORKSPACE: ${{ inputs.workspace }}
+        GRAPH2AGENT_PUBLISH_ARTIFACT_DIRECTORY: ${{ inputs.artifact-directory }}
+        GRAPH2AGENT_PUBLISH_PATCH_SHA256: ${{ inputs.patch-sha256 }}
+        GRAPH2AGENT_PUBLISH_FILES: ${{ inputs.files }}
+        GRAPH2AGENT_PUBLISH_BASE_SHA: ${{ inputs.base-sha }}
+        GRAPH2AGENT_PUBLISH_BRANCH: ${{ inputs.branch }}
+        GRAPH2AGENT_PUBLISH_COMMIT_MESSAGE: ${{ inputs.commit-message }}
+        GRAPH2AGENT_PUBLISH_REPOSITORY: ${{ inputs.repository }}
+        GRAPH2AGENT_PUBLISH_SERVER_URL: ${{ inputs.server-url }}
+        GRAPH2AGENT_PUBLISH_EVENT_NAME: ${{ inputs.event-name }}
+        GRAPH2AGENT_PUBLISH_TOKEN: ${{ inputs.token }}
+      run: '"$GITHUB_ACTION_PATH/run.sh"'

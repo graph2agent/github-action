@@ -1,0 +1,53 @@
+name: Prepare graph2agent Markdown update
+description: Generate and validate a checksummed Markdown-only patch without write authority.
+
+inputs:
+  binary:
+    description: Absolute path to the pinned graph2agent binary.
+    required: true
+  workspace:
+    description: Absolute path to the clean caller repository checkout.
+    required: true
+  path:
+    description: Existing caller-relative Markdown file or directory to update.
+    required: false
+    default: .
+  profile:
+    description: Deterministic graph2agent narrative profile.
+    required: false
+    default: interpreted-v3
+  branch:
+    description: Existing short branch checked out in the caller workspace.
+    required: true
+  artifact-directory:
+    description: New directory under RUNNER_TEMP for the patch and checksum.
+    required: true
+
+outputs:
+  updated:
+    description: true when a validated Markdown patch was produced.
+    value: ${{ steps.prepare.outputs.updated }}
+  files:
+    description: Number of tracked Markdown files in the patch.
+    value: ${{ steps.prepare.outputs.files }}
+  patch-sha256:
+    description: SHA-256 digest of update.patch, or empty for a no-op.
+    value: ${{ steps.prepare.outputs.patch-sha256 }}
+  base-sha:
+    description: Exact caller commit from which the patch was produced.
+    value: ${{ steps.prepare.outputs.base-sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare validated patch
+      id: prepare
+      shell: bash
+      env:
+        GRAPH2AGENT_PREPARE_BINARY: ${{ inputs.binary }}
+        GRAPH2AGENT_PREPARE_WORKSPACE: ${{ inputs.workspace }}
+        GRAPH2AGENT_PREPARE_PATH: ${{ inputs.path }}
+        GRAPH2AGENT_PREPARE_PROFILE: ${{ inputs.profile }}
+        GRAPH2AGENT_PREPARE_BRANCH: ${{ inputs.branch }}
+        GRAPH2AGENT_PREPARE_ARTIFACT_DIRECTORY: ${{ inputs.artifact-directory }}
+      run: '"$GITHUB_ACTION_PATH/run.sh"'
