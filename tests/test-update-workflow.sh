@@ -294,9 +294,12 @@ for hook in pre-commit commit-msg pre-push; do
   chmod +x "$valid_publish_workspace/.git/hooks/$hook"
 done
 
-captured=$(TEST_HOOK_MARKER="$hook_marker" run_publish \
+if ! captured=$(TEST_HOOK_MARKER="$hook_marker" run_publish \
   "$valid_root" "$valid_publish_workspace" "$valid_artifact" "$valid_publish_output" \
-  "$valid_digest" 2 "$valid_base" "$valid_bare" "$valid_push_log" 2>&1)
+  "$valid_digest" 2 "$valid_base" "$valid_bare" "$valid_push_log" 2>&1); then
+  printf '%s\n' "$captured" >&2
+  fail_test 'valid Markdown publication failed'
+fi
 valid_commit=$(output_value commit "$valid_publish_output")
 [[ "$valid_commit" =~ ^[0-9a-f]{40}$ ]] || fail_test 'publish did not emit a commit SHA'
 [[ $("$real_git" --git-dir="$valid_bare" rev-parse refs/heads/main) == "$valid_commit" ]] ||
@@ -392,9 +395,12 @@ production_base=$(printf '%s\n' "$production_metadata" | sed -n '5p')
 production_digest=$(printf '%s\n' "$production_metadata" | sed -n '6p')
 production_output=${production_root}/output
 production_push_log=${production_root}/push.bin
-production_captured=$(run_publish_production_simulation \
+if ! production_captured=$(run_publish_production_simulation \
   "$production_root" "$production_workspace" "$production_artifact" "$production_output" \
-  "$production_digest" 1 "$production_base" "$production_bare" "$production_push_log" 2>&1)
+  "$production_digest" 1 "$production_base" "$production_bare" "$production_push_log" 2>&1); then
+  printf '%s\n' "$production_captured" >&2
+  fail_test 'production authorization simulation failed'
+fi
 production_commit=$(output_value commit "$production_output")
 [[ $($real_git --git-dir="$production_bare" rev-parse refs/heads/main) == "$production_commit" ]] ||
   fail_test 'production authorization simulation did not push the validated commit'

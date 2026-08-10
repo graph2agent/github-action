@@ -163,7 +163,7 @@ while IFS= read -r -d '' status && IFS= read -r -d '' path; do
 done < <(git --no-pager diff --cached --no-ext-diff --no-textconv --name-status -z --no-renames)
 ((files == expected_files)) || fail "patched file count does not match the prepare job"
 
-reproduced_patch=$(mktemp "${runner_temp%/}/graph2agent-reproduced.XXXXXX.patch")
+reproduced_patch=$(mktemp "${runner_temp%/}/graph2agent-reproduced.XXXXXX")
 trap 'rm -f "$reproduced_patch"' EXIT
 git --no-pager diff --cached --binary --full-index --no-ext-diff --no-textconv --no-renames -- . >"$reproduced_patch"
 cmp -s "$patch_path" "$reproduced_patch" || fail "applied diff does not reproduce the checksummed patch"
