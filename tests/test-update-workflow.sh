@@ -166,6 +166,7 @@ run_publish() {
   GRAPH2AGENT_PUBLISH_TOKEN="$test_token" \
   GRAPH2AGENT_TEST_MODE=1 \
   GRAPH2AGENT_TEST_REMOTE_URL="$bare_remote" \
+  GITHUB_ACTIONS=false \
   RUNNER_TEMP="$case_root/runner" \
   GITHUB_WORKSPACE="$case_root" \
   GITHUB_OUTPUT="$output" \
