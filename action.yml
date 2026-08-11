@@ -10,7 +10,7 @@ inputs:
   version:
     description: Exact graph2agent core SemVer tag to install.
     required: false
-    default: v0.2.0
+    default: v0.4.0
   operation:
     description: Operation to run; update writes annotations and check verifies them.
     required: false

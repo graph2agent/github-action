@@ -35,7 +35,7 @@ jobs:
   graph2agent:
     uses: graph2agent/github-action/.github/workflows/check-markdown.yml@b467d92b8c14a87fe977bc6a12a0f9fc685ab047
     with:
-      graph2agent-version: v0.2.0
+      graph2agent-version: v0.4.0
 ```
 
 Make this job a required status check. It runs `graph2agent check .` and never
@@ -59,7 +59,7 @@ jobs:
   graph2agent:
     uses: graph2agent/github-action/.github/workflows/maintain-markdown.yml@b467d92b8c14a87fe977bc6a12a0f9fc685ab047
     with:
-      graph2agent-version: v0.2.0
+      graph2agent-version: v0.4.0
 ```
 
 The scheduled run does nothing when annotations are current. When they are
@@ -69,7 +69,7 @@ PR. If one graph2agent maintenance PR is already open against that base branch,
 later daily runs reuse it instead of creating duplicates.
 
 Both examples pin the reviewed Apache-2.0 launch implementation by its full
-commit SHA. The no-secret public setup is active with the `v0.2.0` core release.
+commit SHA. The no-secret public setup is active with the `v0.4.0` core release.
 
 ## Composite action
 
@@ -87,7 +87,7 @@ steps:
       persist-credentials: false
   - uses: graph2agent/github-action@b467d92b8c14a87fe977bc6a12a0f9fc685ab047
     with:
-      version: v0.2.0
+      version: v0.4.0
       operation: check
       path: .
       profile: interpreted-v3
@@ -102,7 +102,7 @@ no Git publication step.
 | Input | Default | Contract |
 | --- | --- | --- |
 | `token` | empty | Optional read-only GitHub access for private-fork compatibility; public releases need none. |
-| `version` | `v0.2.0` | Exact SemVer tag; branches, ranges, and `latest` are rejected. |
+| `version` | `v0.4.0` | Exact SemVer tag; branches, ranges, and `latest` are rejected. |
 | `operation` | `check` | Exactly `check` or `update`. |
 | `path` | `.` | One repository-relative file or directory; traversal, symlink targets, leading hyphens, and line breaks are rejected. |
 | `profile` | `interpreted-v3` | One supported deterministic narrative profile. |
@@ -140,10 +140,10 @@ The caller must deliberately grant `contents: write` and pass its unique
 read-only core deploy key as `GRAPH2AGENT_DEPLOY_KEY`. Reusable workflows cannot
 elevate a caller token. The workflow separates generation from publication:
 
-1. `prepare` has only `contents: read`. It checks out the exact private core
-   tag with the deploy key, builds and runs it, verifies the result, and uploads
-   a checksummed binary patch containing only modifications to tracked regular
-   `.md` files.
+1. `prepare` has only `contents: read`. It checks out the exact core tag with
+   the caller-supplied deploy key retained for private-fork compatibility,
+   builds and runs it, verifies the result, and uploads a checksummed binary
+   patch containing only modifications to tracked regular `.md` files.
 2. `publish` starts on a fresh runner with `contents: write`. It receives no
    core credential and runs no core code. A separately SHA-pinned publisher
    verifies and reapplies the patch against its exact base, independently
@@ -168,7 +168,7 @@ commit SHA. See [`examples/reusable-update.yml`](examples/reusable-update.yml).
 | --- | --- | --- |
 | `path` | `.` | Existing repository-relative Markdown file or directory. |
 | `profile` | `interpreted-v3` | One supported deterministic narrative profile. |
-| `graph2agent-version` | `v0.1.0` | Exact private-preview core SemVer tag. |
+| `graph2agent-version` | `v0.4.0` | Exact graph2agent core SemVer tag. |
 | `branch` | empty | Existing short branch name; empty selects the caller default branch. |
 | `commit-message` | `docs: refresh graph2agent annotations` | Non-empty, single-line message of at most 200 characters. |
 
@@ -177,7 +177,7 @@ The workflow returns `updated`, `files-changed`, `commit-sha`, and `branch`.
 
 ## Private-preview compatibility
 
-Public `v0.2.0` use needs no core credential. While the core remains private,
+Public `v0.4.0` use needs no core credential. While using a private core fork,
 the composite action and reusable check can use `GRAPH2AGENT_READ_TOKEN`.
 Create it as a fine-grained personal access token or
 GitHub App installation token with:

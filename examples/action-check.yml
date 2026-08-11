@@ -17,7 +17,7 @@ jobs:
           persist-credentials: false
       - uses: graph2agent/github-action@b467d92b8c14a87fe977bc6a12a0f9fc685ab047
         with:
-          version: v0.2.0
+          version: v0.4.0
           operation: check
           path: .
           profile: interpreted-v3

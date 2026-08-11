@@ -14,4 +14,4 @@ jobs:
     with:
       path: .
       profile: interpreted-v3
-      graph2agent-version: v0.2.0
+      graph2agent-version: v0.4.0

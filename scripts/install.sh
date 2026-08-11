@@ -17,7 +17,7 @@ unset GRAPH2AGENT_READ_TOKEN
 [[ "$token" != *$'\n'* && "$token" != *$'\r'* ]] || fail "read token contains a line break"
 semver_pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
 [[ "$version" =~ $semver_pattern ]] ||
-  fail "version must be an exact SemVer tag such as v0.1.0"
+  fail "version must be an exact SemVer tag such as v0.4.0"
 [[ -n "$runner_temp" && -d "$runner_temp" ]] || fail "RUNNER_TEMP must name an existing directory"
 [[ "$runner_temp" != *$'\n'* && "$runner_temp" != *$'\r'* ]] || fail "RUNNER_TEMP contains a line break"
 [[ -n "$github_output" ]] || fail "GITHUB_OUTPUT is required"

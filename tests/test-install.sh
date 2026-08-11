@@ -21,16 +21,16 @@ captured=$(PATH="${fake_path}:$PATH" \
   EXPECT_PRIVATE_AUTH=true \
   EXPECTED_TEST_TOKEN="$test_token" \
   GRAPH2AGENT_READ_TOKEN="$test_token" \
-  GRAPH2AGENT_VERSION=v0.2.0 \
+  GRAPH2AGENT_VERSION=v0.4.0 \
   RUNNER_TEMP="$temporary" \
   GITHUB_OUTPUT="$github_output" \
   "${repo_root}/scripts/install.sh" 2>&1)
 
-[[ $captured == *'Installed graph2agent v0.2.0'* ]]
+[[ $captured == *'Installed graph2agent v0.4.0'* ]]
 [[ $captured != *"$test_token"* ]]
-[[ $(tr '\0' '\n' <"$go_log") == $'install\ngithub.com/graph2agent/graph2agent/cmd/graph2agent@v0.2.0' ]]
+[[ $(tr '\0' '\n' <"$go_log") == $'install\ngithub.com/graph2agent/graph2agent/cmd/graph2agent@v0.4.0' ]]
 [[ $(grep -c '^binary=' "$github_output") -eq 1 ]]
-grep -Fx 'version=v0.2.0' "$github_output" >/dev/null
+grep -Fx 'version=v0.4.0' "$github_output" >/dev/null
 [[ $(<"$github_output") != *"$test_token"* ]]
 installed_binary=$(sed -n 's/^binary=//p' "$github_output")
 [[ -x "$installed_binary" ]]
@@ -57,12 +57,12 @@ public_captured=$(PATH="${fake_path}:$PATH" \
   FAKE_GO_LOG="$go_log" \
   FAKE_GRAPH2AGENT_FIXTURE="${repo_root}/tests/fixtures/fake-graph2agent" \
   EXPECT_PRIVATE_AUTH=false \
-  GRAPH2AGENT_VERSION=v0.2.0 \
+  GRAPH2AGENT_VERSION=v0.4.0 \
   RUNNER_TEMP="$temporary" \
   GITHUB_OUTPUT="$public_output" \
   "${repo_root}/scripts/install.sh" 2>&1)
-[[ $public_captured == *'Installed graph2agent v0.2.0'* ]]
-[[ $(tr '\0' '\n' <"$go_log") == $'install\ngithub.com/graph2agent/graph2agent/cmd/graph2agent@v0.2.0' ]]
-grep -Fx 'version=v0.2.0' "$public_output" >/dev/null
+[[ $public_captured == *'Installed graph2agent v0.4.0'* ]]
+[[ $(tr '\0' '\n' <"$go_log") == $'install\ngithub.com/graph2agent/graph2agent/cmd/graph2agent@v0.4.0' ]]
+grep -Fx 'version=v0.4.0' "$public_output" >/dev/null
 
 printf 'install tests passed\n'

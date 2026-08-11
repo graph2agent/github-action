@@ -20,7 +20,7 @@ jobs:
     with:
       path: .
       profile: interpreted-v3
-      graph2agent-version: v0.1.0
+      graph2agent-version: v0.4.0
       branch: ${{ inputs.branch }}
       commit-message: 'docs: refresh graph2agent annotations'
     secrets:

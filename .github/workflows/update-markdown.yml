@@ -14,10 +14,10 @@ on:
         type: string
         default: interpreted-v3
       graph2agent-version:
-        description: Exact private graph2agent core SemVer tag.
+        description: Exact graph2agent core SemVer tag.
         required: false
         type: string
-        default: v0.1.0
+        default: v0.4.0
       branch:
         description: Existing caller branch to update; empty selects its default branch.
         required: false
@@ -120,7 +120,7 @@ jobs:
           persist-credentials: false
           show-progress: false
 
-      - name: Check out exact private core tag
+      - name: Check out exact core tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: graph2agent/graph2agent

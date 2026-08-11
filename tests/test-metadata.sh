@@ -30,7 +30,7 @@ abort "composite action missing runs.using" unless document.dig("runs", "using")
 end
 abort "unsafe default operation" unless document.dig("inputs", "operation", "default") == "check"
 abort "wrong default profile" unless document.dig("inputs", "profile", "default") == "interpreted-v3"
-abort "wrong default core tag" unless document.dig("inputs", "version", "default") == "v0.2.0"
+abort "wrong default core tag" unless document.dig("inputs", "version", "default") == "v0.4.0"
 abort "wrong default Go toolchain" unless document.dig("inputs", "go-version", "default") == "1.25.x"
 abort "token must be optional" unless document.dig("inputs", "token", "required") == false
 abort "optional token must default empty" unless document.dig("inputs", "token", "default") == ""
@@ -60,7 +60,7 @@ end
 abort "update path must default to repository root" unless inputs.dig("path", "default") == "."
 abort "update branch must default to caller default selection" unless inputs.dig("branch", "default") == ""
 abort "wrong update profile" unless inputs.dig("profile", "default") == "interpreted-v3"
-abort "wrong update core tag" unless inputs.dig("graph2agent-version", "default") == "v0.1.0"
+abort "wrong update core tag" unless inputs.dig("graph2agent-version", "default") == "v0.4.0"
 abort "deploy key must be required" unless call.dig("secrets", "GRAPH2AGENT_DEPLOY_KEY", "required") == true
 abort "unexpected reusable workflow secret" unless call.fetch("secrets", {}).keys == ["GRAPH2AGENT_DEPLOY_KEY"]
 abort "top-level permissions must be empty" unless workflow["permissions"] == {}
@@ -81,7 +81,7 @@ prepare_names = prepare_steps.map { |step| step["name"] }
 [
   "Validate update request",
   "Check out caller branch",
-  "Check out exact private core tag",
+  "Check out exact core tag",
   "Assert checkout credentials are absent",
   "Build exact checked-out core",
   "Prepare checksummed Markdown-only patch",
@@ -90,7 +90,7 @@ prepare_names = prepare_steps.map { |step| step["name"] }
   abort "missing prepare safety step #{name}" unless prepare_names.include?(name)
 end
 
-core_checkout = prepare_steps.find { |step| step["name"] == "Check out exact private core tag" }
+core_checkout = prepare_steps.find { |step| step["name"] == "Check out exact core tag" }
 abort "core checkout repository is wrong" unless core_checkout.dig("with", "repository") == "graph2agent/graph2agent"
 abort "core checkout must use the exact requested tag" unless core_checkout.dig("with", "ref") == "${{ inputs.graph2agent-version }}"
 abort "core checkout must receive the deploy key" unless core_checkout.dig("with", "ssh-key") == "${{ secrets.GRAPH2AGENT_DEPLOY_KEY }}"
@@ -121,7 +121,7 @@ maintain_inputs = maintain_call.fetch("inputs", {})
 %w[path profile graph2agent-version base-branch commit-message pull-request-title].each do |name|
   abort "missing maintain workflow input #{name}" unless maintain_inputs.key?(name)
 end
-abort "wrong maintain core tag" unless maintain_inputs.dig("graph2agent-version", "default") == "v0.2.0"
+abort "wrong maintain core tag" unless maintain_inputs.dig("graph2agent-version", "default") == "v0.4.0"
 abort "wrong maintain profile" unless maintain_inputs.dig("profile", "default") == "interpreted-v3"
 abort "maintain read token must be optional" unless maintain_call.dig("secrets", "GRAPH2AGENT_READ_TOKEN", "required") == false
 abort "maintain must accept exactly one optional secret" unless maintain_call.fetch("secrets", {}).keys == ["GRAPH2AGENT_READ_TOKEN"]

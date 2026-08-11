@@ -14,4 +14,4 @@ jobs:
     uses: graph2agent/github-action/.github/workflows/maintain-markdown.yml@b467d92b8c14a87fe977bc6a12a0f9fc685ab047
     with:
       path: .
-      graph2agent-version: v0.2.0
+      graph2agent-version: v0.4.0
