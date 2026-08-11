@@ -8,7 +8,8 @@ ruby --disable-gems - \
   "$repo_root/.github/workflows/update-markdown.yml" \
   "$repo_root/prepare/action.yml" \
   "$repo_root/publish/action.yml" \
-  "$repo_root/.github/workflows/maintain-markdown.yml" <<'RUBY'
+  "$repo_root/.github/workflows/maintain-markdown.yml" \
+  "$repo_root/.github/workflows/release.yml" <<'RUBY'
 require "yaml"
 
 def load_yaml(path)
@@ -145,6 +146,26 @@ abort "maintain prepare must use the audited patch preparer" unless maintain_pre
 abort "maintain workflow must open the pull request through the GitHub API" unless maintain_publish_source.include?("gh api --method POST")
 abort "maintain workflow must reuse one open bot pull request" unless maintain_publish_source.include?("starts_with") || maintain_publish_source.include?("startswith")
 abort "maintain workflow may not force-push" if maintain_publish_source.match?(/--force(?:\s|$)|--force-with-lease/)
+
+release = load_yaml(ARGV.fetch(5))
+abort "release workflow must be a mapping" unless release.is_a?(Hash)
+release_trigger = release["on"] || release[true]
+abort "release workflow must accept the coordinated dispatch" unless release_trigger.dig("repository_dispatch", "types") == ["graph2agent-release"]
+release_inputs = release_trigger.dig("workflow_dispatch", "inputs")
+abort "release workflow must be manually recoverable" unless release_inputs&.keys == %w[version core-commit source-sha256]
+abort "release workflow needs contents write" unless release["permissions"] == {"contents" => "write"}
+abort "release workflow may not cancel a publication" unless release.dig("concurrency", "cancel-in-progress") == false
+release_job = release.fetch("jobs").fetch("release")
+release_source = YAML.dump(release_job)
+abort "release request must validate the version" unless release_source.include?("^v(0|[1-9][0-9]*)")
+abort "release request must validate the core commit" unless release_source.include?("^[0-9a-f]{40}$")
+abort "release request must validate the source digest" unless release_source.include?("^[0-9a-f]{64}$")
+abort "release workflow must verify the exact public core tag" unless release_source.include?("repository: graph2agent/graph2agent")
+abort "release workflow must create an immutable tag" unless release_source.include?("/git/tags") && release_source.include?("/git/refs")
+abort "release workflow must create a GitHub Release" unless release_source.include?("gh release create")
+abort "release workflow must use a short-lived GitHub App token" unless release_source.include?("actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1")
+abort "release workflow must dispatch MCP next" unless release_source.include?("/repos/graph2agent/mcp/dispatches")
+abort "release workflow must forward the Action commit" unless release_source.include?("client_payload[action_commit]")
 RUBY
 
 while IFS= read -r use; do

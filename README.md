@@ -223,6 +223,23 @@ The public check and maintenance examples pin the reviewed launch
 implementation by full commit SHA. Review and update that pin deliberately
 when adopting a newer release.
 
+## Coordinated releases
+
+After a version-alignment commit is on `main`, publishing the matching SemVer
+GitHub Release in `graph2agent/graph2agent` starts the release train. Core sends
+this repository the exact version, core commit, and source-archive SHA-256. The
+release workflow verifies all three, runs `make check`, creates or verifies the
+immutable Action tag and GitHub Release, and dispatches MCP with this Action's
+exact commit. A manual dispatch with the same inputs provides fail-closed
+recovery without minting a different release identity.
+
+The workflow uses a short-lived GitHub App installation token for the MCP
+handoff. Configure `GRAPH2AGENT_RELEASE_APP_CLIENT_ID` as an Actions variable
+and `GRAPH2AGENT_RELEASE_APP_PRIVATE_KEY` as an Actions secret. Install that App
+only on the coordinated release repositories and grant the minimum required
+`Contents: write` permission. Do not replace the immutable `uses:` SHAs in
+consumer examples with a moving release tag.
+
 ## Development
 
 ```sh

@@ -1,0 +1,141 @@
+name: Publish coordinated Action release
+
+on:
+  repository_dispatch:
+    types: [graph2agent-release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact coordinated SemVer tag, including the leading v.
+        required: true
+        type: string
+      core-commit:
+        description: Exact graph2agent core release commit.
+        required: true
+        type: string
+      source-sha256:
+        description: SHA-256 of the immutable core source archive.
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: coordinated-action-${{ github.event.client_payload.version || inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'graph2agent/github-action' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RELEASE_VERSION: ${{ github.event.client_payload.version || inputs.version }}
+      CORE_COMMIT: ${{ github.event.client_payload.core_commit || inputs.core-commit }}
+      SOURCE_SHA256: ${{ github.event.client_payload.source_sha256 || inputs.source-sha256 }}
+    steps:
+      - name: Validate coordinated release request
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$CORE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$SOURCE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+
+      - name: Check out exact Action release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go for actionlint
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.25.x
+          cache: false
+
+      - name: Verify source version and release contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=${RELEASE_VERSION#v}
+          [[ $(ruby -e 'require "yaml"; puts YAML.safe_load(File.read("action.yml"), aliases: false).dig("inputs", "version", "default")') == "$RELEASE_VERSION" ]]
+          grep -Fq "graph2agent-version: $RELEASE_VERSION" examples/reusable-check.yml
+          grep -Fq "graph2agent-version: $RELEASE_VERSION" examples/reusable-maintain.yml
+          test -z "$(grep -R -E 'v0\.[0-3]\.[0-9]+|graph2agent-mcp@0\.[0-3]\.[0-9]+' -- README.md action.yml examples .github/workflows || true)"
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          make check
+          printf 'verified graph2agent Action %s (%s)\n' "$expected" "$(git rev-parse HEAD)"
+
+      - name: Verify exact public core release identity
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: graph2agent/graph2agent
+          ref: ${{ env.RELEASE_VERSION }}
+          path: .release-core
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Compare core tag with coordinated commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual=$(git -C .release-core rev-parse HEAD)
+          [[ "$actual" == "$CORE_COMMIT" ]] || {
+            printf '%s resolves to %s, expected %s\n' "$RELEASE_VERSION" "$actual" "$CORE_COMMIT" >&2
+            exit 1
+          }
+
+      - name: Create or verify immutable Action tag
+        id: identity
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          action_commit=$(git rev-parse HEAD)
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_VERSION"; then
+            [[ $(git rev-parse "$RELEASE_VERSION^{}") == "$action_commit" ]] || {
+              printf 'existing %s does not identify %s\n' "$RELEASE_VERSION" "$action_commit" >&2
+              exit 1
+            }
+          else
+            tag_object=$(gh api --method POST "/repos/$GITHUB_REPOSITORY/git/tags" \
+              -f tag="$RELEASE_VERSION" \
+              -f message="graph2agent GitHub Action $RELEASE_VERSION" \
+              -f object="$action_commit" \
+              -f type=commit --jq .sha)
+            gh api --method POST "/repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$RELEASE_VERSION" \
+              -f sha="$tag_object" >/dev/null
+          fi
+          if ! gh release view "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --generate-notes --title "graph2agent GitHub Action $RELEASE_VERSION"
+          fi
+          printf 'action-commit=%s\n' "$action_commit" >>"$GITHUB_OUTPUT"
+
+      - name: Create short-lived cross-repository token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.GRAPH2AGENT_RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GRAPH2AGENT_RELEASE_APP_PRIVATE_KEY }}
+          owner: graph2agent
+          repositories: mcp
+          permission-contents: write
+
+      - name: Continue the release train with MCP
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ACTION_COMMIT: ${{ steps.identity.outputs.action-commit }}
+        run: |
+          set -euo pipefail
+          gh api --method POST /repos/graph2agent/mcp/dispatches \
+            -f event_type=graph2agent-release \
+            -f "client_payload[version]=$RELEASE_VERSION" \
+            -f "client_payload[core_commit]=$CORE_COMMIT" \
+            -f "client_payload[action_commit]=$ACTION_COMMIT" \
+            -f "client_payload[source_sha256]=$SOURCE_SHA256"
